@@ -41,7 +41,12 @@ def scrape_wait_times():
             
             # Find the wait time (it's in a div with a specific class)
             wait_time_tag = block.find('div', class_='views-field-field-er-wait-times')
-            wait_time = wait_time_tag.get_text(strip=True) if wait_time_tag else "N/A"
+            if wait_time_tag:
+                wait_time_text = wait_time_tag.get_text(strip=True)
+                # Remove the "Wait Time:" prefix for cleaner data
+                wait_time = wait_time_text.replace("Wait Time:", "").strip()
+            else:
+                wait_time = "N/A"
             
             # Add the collected data to our list
             scraped_data.append({
