@@ -5,7 +5,7 @@ This project scrapes the emergency room wait times for hospitals on Prince Edwar
 ## Features
 
 - Uses Playwright to take screenshots of hospital wait time pages.
-- Leverages a local Llava model to extract wait time data from screenshots.
+- Leverages a local Moondream model to extract wait time data from screenshots.
 - Saves data with a timestamp to `hospital_wait_times.csv`.
 - Runs automatically every hour to collect data continuously.
 
@@ -13,12 +13,12 @@ This project scrapes the emergency room wait times for hospitals on Prince Edwar
 
 ### 1. Prerequisites
 
-This project requires a locally running instance of the Llava model. You can set this up using [Ollama](https://ollama.ai/).
+This project requires a locally running instance of the Moondream model. You can set this up using [Ollama](https://ollama.ai/).
 
 1.  **Install Ollama:** Follow the instructions on the Ollama website to install it on your system.
-2.  **Pull the Llava model:** Once Ollama is installed, pull the Llava model by running the following command in your terminal:
+2.  **Pull the Moondream model:** Once Ollama is installed, pull the Moondream model by running the following command in your terminal:
     ```bash
-    ollama pull llava
+    ollama pull moondream
     ```
 3.  **Ensure the Ollama server is running:** The script connects to the Ollama API at `http://localhost:11434`. Make sure the Ollama application is running before you start the scraper.
 
@@ -46,12 +46,12 @@ To start the scraper, simply run the `ertmain.py` script:
 python ertmain.py
 ```
 
-The script will then start running in your terminal. It will print status messages as it navigates to the hospital websites, takes screenshots, and analyzes them with Llava.
+The script will then start running in your terminal. It will print status messages as it navigates to the hospital websites, takes screenshots, and analyzes them with Moondream.
 
 ```
 Navigating to https://www.princeedwardisland.ca/en/feature/emergency-department-wait-times-queen-elizabeth-hospital-qeh...
 Screenshot saved to screenshot_0.png
-Analyzing screenshot_0.png with Llava...
+Analyzing screenshot_0.png with Moondream...
 Data successfully saved to hospital_wait_times.csv
 ...
 Waiting for 1 hour before next scrape...
@@ -65,10 +65,15 @@ The scraped data is saved in a file named `hospital_wait_times.csv`. A new entry
 
 The CSV file has the following columns:
 
-- **Timestamp**: The date and time when the data was scraped (e.g., `2023-10-27 14:30:00`).
-- **hospital_name**: The name of the hospital.
-- **patients_in_waiting_room**: The number of patients in the waiting room.
-- **urgent_patients**: The number of urgent patients.
-- **urgent_wait_time**: The estimated wait time for urgent patients.
-- **less_urgent_patients**: The number of less urgent patients.
-- **less_urgent_wait_time**: The estimated wait time for less urgent patients.
+- **Timestamp**: The date and time when the data was scraped.
+- **HospitalName**: The name of the hospital.
+- **DataUpdated**: The timestamp from the website indicating when the data was last updated.
+- **PatientsInWaitingRoom**: The number of patients in the waiting room.
+- **MostUrgent_Patients**: The number of patients in the "Most Urgent" category.
+- **MostUrgent_WaitTime**: The wait time for the "Most Urgent" category.
+- **Urgent_Patients**: The number of patients in the "Urgent" category.
+- **Urgent_WaitTime**: The wait time for the "Urgent" category.
+- **LessUrgent_Patients**: The number of patients in the "Less Urgent" category.
+- **LessUrgent_WaitTime**: The wait time for the "Less Urgent" category.
+- **PatientsBeingTreated**: The number of patients currently being treated.
+- **TotalPatientsInED**: The total number of patients in the Emergency Department.

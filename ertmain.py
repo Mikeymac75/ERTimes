@@ -18,7 +18,7 @@ URLS = [
 
 # The name of the file where we'll save the data
 CSV_FILE = "hospital_wait_times.csv"
-LLAVA_API_URL = "http://localhost:11434/api/generate" # Default Ollama API URL
+OLLAMA_API_URL = "http://localhost:11434/api/generate" # Default Ollama API URL
 
 async def capture_screenshot(page, url, screenshot_path):
     """
@@ -41,35 +41,35 @@ def encode_image(image_path):
     with open(image_path, "rb") as image_file:
         return base64.b64encode(image_file.read()).decode('utf-8')
 
-def analyze_image_with_llava(image_path):
+def analyze_image_with_moondream(image_path):
     """
-    Sends a screenshot to the Llava server for analysis.
+    Sends a screenshot to the Moondream server for analysis.
     """
-    print(f"Analyzing {image_path} with Llava...")
+    print(f"Analyzing {image_path} with Moondream...")
     base64_image = encode_image(image_path)
 
     payload = {
-        "model": "llava",
+        "model": "moondream",
         "prompt": "Analyze the attached screenshot of a hospital wait times website. Extract the name of the hospital and all wait time categories with their corresponding patient counts and wait times. Return the data as a clean, machine-readable JSON object. The JSON should have keys like 'hospital_name', 'patients_in_waiting_room', 'urgent_patients', 'urgent_wait_time', etc.",
         "images": [base64_image],
         "stream": False
     }
 
     try:
-        response = requests.post(LLAVA_API_URL, json=payload)
+        response = requests.post(OLLAMA_API_URL, json=payload)
         response.raise_for_status()
         response_json = response.json()
         json_data_str = response_json.get('response')
-        # Clean up the response from Llava
+        # Clean up the response from Moondream
         clean_json_str = json_data_str.strip().replace("```json", "").replace("```", "")
         return json.loads(clean_json_str)
     except (requests.exceptions.RequestException, json.JSONDecodeError) as e:
-        print(f"Error processing Llava response: {e}")
+        print(f"Error processing Moondream response: {e}")
         return None
 
 def flatten_json_data(data):
     """
-    Transforms the nested JSON data from Llava into a flat dictionary.
+    Transforms the nested JSON data from the AI model into a flat dictionary.
     """
     flat_data = {
         "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -138,8 +138,8 @@ async def main():
                     screenshot_path = await capture_screenshot(page, url, screenshot_path)
 
                     if screenshot_path:
-                        # Analyze the screenshot with Llava
-                        wait_time_data = analyze_image_with_llava(screenshot_path)
+                        # Analyze the screenshot with Moondream
+                        wait_time_data = analyze_image_with_moondream(screenshot_path)
 
                         if wait_time_data:
                             # Flatten the data and save to CSV
