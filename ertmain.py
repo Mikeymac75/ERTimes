@@ -20,24 +20,19 @@ URLS = [
 CSV_FILE = "hospital_wait_times.csv"
 LLAVA_API_URL = "http://localhost:11434/api/generate" # Default Ollama API URL
 
-async def capture_screenshot(url, screenshot_path):
+async def capture_screenshot(page, url, screenshot_path):
     """
-    Navigates to a URL and captures a screenshot.
+    Navigates to a URL and captures a screenshot using an existing page object.
     """
-    async with async_playwright() as p:
-        browser = await p.chromium.launch()
-        page = await browser.new_page()
-        try:
-            print(f"Navigating to {url}...")
-            await page.goto(url, wait_until="networkidle", timeout=60000)
-            await page.screenshot(path=screenshot_path)
-            print(f"Screenshot saved to {screenshot_path}")
-            return screenshot_path
-        except Exception as e:
-            print(f"Error capturing screenshot from {url}: {e}")
-            return None
-        finally:
-            await browser.close()
+    try:
+        print(f"Navigating to {url}...")
+        await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+        await page.screenshot(path=screenshot_path)
+        print(f"Screenshot saved to {screenshot_path}")
+        return screenshot_path
+    except Exception as e:
+        print(f"Error capturing screenshot from {url}: {e}")
+        return None
 
 def encode_image(image_path):
     """
@@ -56,16 +51,15 @@ def analyze_image_with_llava(image_path):
     payload = {
         "model": "llava",
         "prompt": "Analyze the attached screenshot of a hospital wait times website. Extract the name of the hospital and all wait time categories with their corresponding patient counts and wait times. Return the data as a clean, machine-readable JSON object. The JSON should have keys like 'hospital_name', 'patients_in_waiting_room', 'urgent_patients', 'urgent_wait_time', etc.",
-        "images": [base64_image]
+        "images": [base64_image],
+        "stream": False
     }
 
     try:
         response = requests.post(LLAVA_API_URL, json=payload)
         response.raise_for_status()
-        # The response from ollama is a stream of json objects, we need to parse the last one
-        lines = response.text.strip().split('\n')
-        last_line = lines[-1]
-        json_data_str = json.loads(last_line).get('response')
+        response_json = response.json()
+        json_data_str = response_json.get('response')
         # Clean up the response from Llava
         clean_json_str = json_data_str.strip().replace("```json", "").replace("```", "")
         return json.loads(clean_json_str)
@@ -73,53 +67,58 @@ def analyze_image_with_llava(image_path):
         print(f"Error processing Llava response: {e}")
         return None
 
-def save_to_csv(data):
+def flatten_json_data(data):
     """
-    Saves the parsed data to a CSV file.
-    Creates the file and writes the header if it doesn't exist.
+    Transforms the nested JSON data from Llava into a flat dictionary.
+    """
+    flat_data = {
+        "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "HospitalName": data.get("hospital_name"),
+        "DataUpdated": data.get("data_updated"),
+    }
+
+    for item in data.get("wait_times", []):
+        category = item.get("category", "").replace(" ", "")
+        patients = item.get("patients")
+        wait_time = item.get("wait_time")
+
+        if "PatientsintheWaitingRoom" in category:
+            flat_data["PatientsInWaitingRoom"] = patients
+        elif "MostUrgent" in category:
+            flat_data["MostUrgent_Patients"] = patients
+            flat_data["MostUrgent_WaitTime"] = wait_time
+        elif "Urgent(Level3)" in category:
+            flat_data["Urgent_Patients"] = patients
+            flat_data["Urgent_WaitTime"] = wait_time
+        elif "LessthanUrgent(Level4&5)" in category:
+            flat_data["LessUrgent_Patients"] = patients
+            flat_data["LessUrgent_WaitTime"] = wait_time
+
+    additional_stats = data.get("additional_stats", {})
+    flat_data["PatientsBeingTreated"] = additional_stats.get("patients_being_treated")
+    flat_data["TotalPatientsInED"] = additional_stats.get("total_patients_in_ed")
+
+    return flat_data
+
+def save_to_csv(flat_data):
+    """
+    Saves the flattened data to a CSV file.
     """
     file_exists = os.path.isfile(CSV_FILE)
     
-    # Define the column names for the CSV file
     fieldnames = [
-        "Timestamp",
-        "HospitalName",
-        "DataUpdated",
-        "Category",
-        "Patients",
-        "WaitTime",
-        "PatientsBeingTreated",
-        "TotalPatientsInED"
+        "Timestamp", "HospitalName", "DataUpdated",
+        "PatientsInWaitingRoom", "MostUrgent_Patients", "MostUrgent_WaitTime",
+        "Urgent_Patients", "Urgent_WaitTime", "LessUrgent_Patients", "LessUrgent_WaitTime",
+        "PatientsBeingTreated", "TotalPatientsInED"
     ]
-
-    # Prepare the rows to be written to the CSV
-    rows_to_write = []
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    hospital_name = data.get("hospital_name")
-    data_updated = data.get("data_updated")
-    additional_stats = data.get("additional_stats", {})
-    patients_being_treated = additional_stats.get("patients_being_treated")
-    total_patients_in_ed = additional_stats.get("total_patients_in_ed")
-
-    for entry in data.get("wait_times", []):
-        rows_to_write.append({
-            "Timestamp": timestamp,
-            "HospitalName": hospital_name,
-            "DataUpdated": data_updated,
-            "Category": entry.get("category"),
-            "Patients": entry.get("patients"),
-            "WaitTime": entry.get("wait_time"),
-            "PatientsBeingTreated": patients_being_treated,
-            "TotalPatientsInED": total_patients_in_ed
-        })
 
     try:
         with open(CSV_FILE, mode='a', newline='', encoding='utf-8') as file:
             writer = csv.DictWriter(file, fieldnames=fieldnames)
             if not file_exists:
                 writer.writeheader()
-            writer.writerows(rows_to_write)
+            writer.writerow(flat_data)
         print(f"Data successfully saved to {CSV_FILE}")
     except IOError as e:
         print(f"Error writing to file: {e}")
@@ -129,26 +128,33 @@ async def main():
     """
     Main function to orchestrate the scraping process.
     """
-    while True:
-        for url in URLS:
-            screenshot_path = f"screenshot_{URLS.index(url)}.png"
-            screenshot_path = await capture_screenshot(url, screenshot_path)
-            
-            if screenshot_path:
-                # Analyze the screenshot with Llava
-                wait_time_data = analyze_image_with_llava(screenshot_path)
+    async with async_playwright() as p:
+        browser = await p.chromium.launch()
+        page = await browser.new_page()
+        try:
+            while True:
+                for url in URLS:
+                    screenshot_path = f"screenshot_{URLS.index(url)}.png"
+                    screenshot_path = await capture_screenshot(page, url, screenshot_path)
 
-                if wait_time_data:
-                    # Save the data to the CSV file
-                    save_to_csv(wait_time_data)
+                    if screenshot_path:
+                        # Analyze the screenshot with Llava
+                        wait_time_data = analyze_image_with_llava(screenshot_path)
 
-                # Clean up the screenshot file
-                if os.path.exists(screenshot_path):
-                    os.remove(screenshot_path)
+                        if wait_time_data:
+                            # Flatten the data and save to CSV
+                            flat_data = flatten_json_data(wait_time_data)
+                            save_to_csv(flat_data)
 
-        # Wait for an hour (3600 seconds) before running again
-        print("Waiting for 1 hour before next scrape...")
-        time.sleep(3600)
+                        # Clean up the screenshot file
+                        if os.path.exists(screenshot_path):
+                            os.remove(screenshot_path)
+
+                # Wait for an hour (3600 seconds) before running again
+                print("Waiting for 1 hour before next scrape...")
+                time.sleep(3600)
+        finally:
+            await browser.close()
 
 if __name__ == "__main__":
     asyncio.run(main())
