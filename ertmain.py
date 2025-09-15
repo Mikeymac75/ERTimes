@@ -50,7 +50,7 @@ def analyze_image_with_moondream(image_path):
 
     payload = {
         "model": "moondream",
-        "prompt": "Analyze the attached screenshot of a hospital wait times website. Extract the name of the hospital and all wait time categories with their corresponding patient counts and wait times. Return the data as a clean, machine-readable JSON object. The JSON should have keys like 'hospital_name', 'patients_in_waiting_room', 'urgent_patients', 'urgent_wait_time', etc.",
+        "prompt": "Analyze the attached screenshot. Extract the data and return ONLY a single, raw JSON object. Do not include any other text, greetings, or explanations.",
         "images": [base64_image],
         "stream": False
     }
@@ -58,13 +58,35 @@ def analyze_image_with_moondream(image_path):
     try:
         response = requests.post(OLLAMA_API_URL, json=payload)
         response.raise_for_status()
+        # The initial response from Ollama should be JSON
         response_json = response.json()
-        json_data_str = response_json.get('response')
-        # Clean up the response from Moondream
-        clean_json_str = json_data_str.strip().replace("```json", "").replace("```", "")
+    except requests.exceptions.RequestException as e:
+        print(f"Error requesting Moondream API: {e}")
+        return None
+    except json.JSONDecodeError:
+        print(f"Failed to parse initial JSON response from Moondream: {response.text}")
+        return None
+
+    json_data_str = response_json.get('response')
+    if not json_data_str:
+        print("Moondream response did not contain a 'response' field.")
+        return None
+
+    # Find the first '{' and the last '}'
+    start = json_data_str.find('{')
+    end = json_data_str.rfind('}')
+
+    clean_json_str = ""
+    if start != -1 and end != -1 and start < end:
+        clean_json_str = json_data_str[start:end+1]
+    else:
+        # If we can't find a JSON block, we'll try to parse the whole string
+        clean_json_str = json_data_str
+
+    try:
         return json.loads(clean_json_str)
-    except (requests.exceptions.RequestException, json.JSONDecodeError) as e:
-        print(f"Error processing Moondream response: {e}")
+    except json.JSONDecodeError:
+        print(f"Failed to parse JSON from Moondream response content: {json_data_str}")
         return None
 
 def flatten_json_data(data):
